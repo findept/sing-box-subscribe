@@ -1,0 +1,99 @@
+name: Sync Fork, Build & Push Docker Image, Notify
+
+on:
+  release:
+    types:
+      - published
+    # Trigger when a release is published in the original repo
+    repo: Toperlock/sing-box-subscribe
+
+jobs:
+  sync-fork:
+    name: Sync Fork with Original Repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork repository
+        uses: actions/checkout@v2
+        
+      - name: Add remote for original repository
+        run: git remote add upstream https://github.com/Toperlock/sing-box-subscribe.git
+
+      - name: Fetch the latest changes from the original repository
+        run: git fetch upstream
+
+      - name: Merge changes from the original repository
+        run: git merge upstream/main --allow-unrelated-histories -m "Sync with upstream"
+
+      - name: Push changes to the forked repository
+        run: git push origin main
+
+  build-and-push-docker:
+    name: Build Docker Image and Push to Docker Registry
+    runs-on: ubuntu-latest
+    needs: sync-fork
+    steps:
+      - name: Checkout fork repository
+        uses: actions/checkout@v2
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image
+        run: |
+          docker build -t my-docker-image:latest .
+      
+      - name: Push Docker image to Docker registry
+        run: |
+          docker tag my-docker-image:latest myusername/my-docker-image:latest
+          docker push myusername/my-docker-image:latest
+
+  code-scanning:
+    name: Run Code Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up CodeQL analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: 'python, javascript'
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v2
+
+  dependabot-update:
+    name: Dependabot Update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run Dependabot
+        uses: dependabot-action@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  send-email:
+    name: Send Email Notification
+    runs-on: ubuntu-latest
+    needs: [build-and-push-docker, code-scanning, dependabot-update]
+    steps:
+      - name: Send completion email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          from: 'your-email@example.com'
+          to: 'recipient-email@example.com'
+          subject: 'GitHub Actions Workflow Completed'
+          body: 'The GitHub Actions workflow to sync fork, build, push Docker image, and run updates has completed successfully.'
+          smtp-server: smtp.example.com
+          smtp-port: 587
+          smtp-user: ${{ secrets.SMTP_USER }}
+          smtp-password: ${{ secrets.SMTP_PASSWORD }}
+          secure: true
